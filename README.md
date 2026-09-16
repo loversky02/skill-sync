@@ -84,13 +84,26 @@ says nothing about drift between a separate earlier `report` and a later
 
 ## Install
 
-This repository is the source. The copy that actually runs lives at
-`~/.claude/tools/skill-sync/`, with a wrapper on `PATH` at
-`~/.local/bin/skill-sync`. After changing anything here, reinstall:
+This repository is both the CLI and a Claude/Codex skill (`SKILL.md` at the
+root). Link it into place rather than copying, so an edit here takes effect
+immediately with nothing to re-sync:
 
 ```sh
-cp skill_sync.py test_skill_sync.py README.md ~/.claude/tools/skill-sync/
+git clone https://github.com/loversky02/skill-sync.git ~/Documents/tools/skill-sync
+ln -sfn ~/Documents/tools/skill-sync ~/.claude/tools/skill-sync
+ln -sfn ~/Documents/tools/skill-sync ~/.claude/skills/skill-sync
 ```
+
+Then put a wrapper on `PATH`:
+
+```sh
+printf '#!/bin/sh\nexec python3 "$HOME/.claude/tools/skill-sync/skill_sync.py" "$@"\n' > ~/.local/bin/skill-sync
+chmod +x ~/.local/bin/skill-sync
+```
+
+Because `~/.claude/skills/skill-sync` is a symlink into a git checkout, a sync
+would otherwise carry `.git` into the destination; copies skip the same build
+artefacts the drift hash ignores, so they do not.
 
 ## Tests
 

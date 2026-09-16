@@ -114,6 +114,24 @@ def test_apply_copies_whole_skill_tree_in_either_direction(tmp_path: Path) -> No
     assert (claude / "to-claude" / "extra.txt").read_text() == "codex extra"
 
 
+def test_copy_leaves_build_artefacts_behind(tmp_path: Path) -> None:
+    """A skill directory may be a symlinked git checkout; .git must not travel."""
+    claude, codex, plugins = empty_layout(tmp_path)
+    source = make_skill(claude, "checkout", "a")
+    (source / ".git").mkdir()
+    (source / ".git" / "HEAD").write_text("ref: refs/heads/main")
+    (source / "__pycache__").mkdir()
+    (source / "__pycache__" / "helper.cpython-313.pyc").write_bytes(b"\x00compiled")
+    (source / "keep.md").write_text("real content")
+
+    result = run_cli(claude, codex, plugins, "sync", "--to", "codex", "--apply")
+
+    assert result.returncode == 0, result.stderr
+    assert (codex / "checkout" / "keep.md").read_text() == "real content"
+    assert not (codex / "checkout" / ".git").exists()
+    assert not (codex / "checkout" / "__pycache__").exists()
+
+
 def test_content_difference_requires_apply_and_force_to_overwrite(tmp_path: Path) -> None:
     claude, codex, plugins = empty_layout(tmp_path)
     make_skill(claude, "stale", "source")

@@ -142,9 +142,26 @@ def print_report(report: dict[str, list[str]]) -> None:
             print(f"  {name}")
 
 
+def ignore_noise(_directory: str, names: list[str]) -> set[str]:
+    """Skip the same build artefacts the hash ignores, so copies stay clean."""
+    return {
+        name
+        for name in names
+        if name in NOISE_NAMES or Path(name).suffix in NOISE_SUFFIXES
+    }
+
+
 def copy_skill(source_root: Path, target_root: Path, name: str) -> None:
     target_root.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(source_root / name, target_root / name, dirs_exist_ok=True)
+    # A skill directory can be a symlink into a git checkout; copying .git or
+    # __pycache__ along with it would plant build noise in the destination that
+    # the drift hash then pretends not to see.
+    shutil.copytree(
+        source_root / name,
+        target_root / name,
+        dirs_exist_ok=True,
+        ignore=ignore_noise,
+    )
 
 
 def sync(paths: Paths, report: dict[str, list[str]], target: str, apply: bool, force: bool) -> None:
