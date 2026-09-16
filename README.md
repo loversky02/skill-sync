@@ -84,14 +84,17 @@ says nothing about drift between a separate earlier `report` and a later
 
 ## Install
 
-This repository is both the CLI and a Claude/Codex skill (`SKILL.md` at the
-root). Link it into place rather than copying, so an edit here takes effect
+`skill/` is the shippable skill package — `SKILL.md` and the CLI, nothing else.
+Repository docs and `plans/` deliberately sit outside it, so they are never
+copied into a skill directory by a sync.
+
+Link `skill/` into place rather than copying, so an edit here takes effect
 immediately with nothing to re-sync:
 
 ```sh
 git clone https://github.com/loversky02/skill-sync.git ~/Documents/tools/skill-sync
-ln -sfn ~/Documents/tools/skill-sync ~/.claude/tools/skill-sync
-ln -sfn ~/Documents/tools/skill-sync ~/.claude/skills/skill-sync
+ln -sfn ~/Documents/tools/skill-sync/skill ~/.claude/tools/skill-sync
+ln -sfn ~/Documents/tools/skill-sync/skill ~/.claude/skills/skill-sync
 ```
 
 Then put a wrapper on `PATH`:
@@ -108,5 +111,5 @@ artefacts the drift hash ignores, so they do not.
 ## Tests
 
 ```sh
-python3 -m pytest test_skill_sync.py -q
+python3 -m pytest skill/test_skill_sync.py -q
 ```
