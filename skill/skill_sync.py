@@ -164,7 +164,48 @@ def copy_skill(source_root: Path, target_root: Path, name: str) -> None:
     )
 
 
-def sync(paths: Paths, report: dict[str, list[str]], target: str, apply: bool, force: bool) -> None:
+def stale_entries(source_root: Path, target_root: Path, names: Iterable[str]) -> list[Path]:
+    """Destination paths inside `names` that the source skill no longer has.
+
+    Scoped deliberately: only skills this run is writing are examined, and only
+    their contents. A skill the destination has and the source does not is never
+    a prune candidate - deleting those would wipe every Codex-only skill the
+    first time someone pruned a sync in the other direction.
+    """
+    stale: list[Path] = []
+    for name in names:
+        source, target = source_root / name, target_root / name
+        if not target.is_dir():
+            continue
+        for path in sorted(target.rglob("*")):
+            relative = path.relative_to(target)
+            if any(part in NOISE_NAMES for part in relative.parts):
+                continue
+            if path.suffix in NOISE_SUFFIXES:
+                continue
+            if not (source / relative).exists():
+                stale.append(path)
+    # Keep only the topmost of each stale subtree; removing a directory already
+    # removes its children, and listing both would report phantom deletions.
+    return [p for p in stale if not any(other in p.parents for other in stale)]
+
+
+def remove_stale(entries: Iterable[Path]) -> None:
+    for path in entries:
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+        elif path.exists() or path.is_symlink():
+            path.unlink()
+
+
+def sync(
+    paths: Paths,
+    report: dict[str, list[str]],
+    target: str,
+    apply: bool,
+    force: bool,
+    prune: bool = False,
+) -> None:
     if target == "codex":
         source_root = paths.claude
         target_root = paths.codex
@@ -176,11 +217,15 @@ def sync(paths: Paths, report: dict[str, list[str]], target: str, apply: bool, f
 
     overwrites = report["content_differs"] if force else []
     skipped = [] if force else report["content_differs"]
+    written = (*missing, *overwrites)
+    stale = stale_entries(source_root, target_root, written) if prune else []
     print(f"mode: {'apply' if apply else 'dry-run'}")
     print(f"target: {target_root}")
     print_names("copy", missing)
     print_names("overwrite", overwrites)
     print_names("skipped_content_differs", skipped)
+    if prune:
+        print_names("prune", [str(p.relative_to(target_root)) for p in stale])
 
     if not apply:
         return
@@ -193,7 +238,11 @@ def sync(paths: Paths, report: dict[str, list[str]], target: str, apply: bool, f
             "skill directories changed while the plan was being prepared; "
             "nothing was copied - re-run to see the current plan"
         )
-    for name in (*missing, *overwrites):
+    # Prune before copying: the stale list was computed against the same scan the
+    # guard just revalidated, so removing first cannot delete anything the copy
+    # is about to write.
+    remove_stale(stale)
+    for name in written:
         copy_skill(source_root, target_root, name)
 
 
@@ -242,6 +291,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="overwrite skills whose SKILL.md content differs (requires --apply to write)",
     )
+    sync_parser.add_argument(
+        "--prune",
+        action="store_true",
+        help=(
+            "delete files inside the skills being written that the source no "
+            "longer has (requires --apply to delete; never removes a whole skill)"
+        ),
+    )
     return parser
 
 
@@ -261,7 +318,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print_report(report)
         else:
-            sync(paths, report, args.to, args.apply, args.force)
+            sync(paths, report, args.to, args.apply, args.force, args.prune)
     except SkillSyncError as exc:
         print(f"skill-sync: error: {exc}", file=sys.stderr)
         return 2

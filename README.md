@@ -2,7 +2,7 @@
 
 `skill-sync` reports drift between Claude user skills and Codex skills, then can
 copy missing or stale skill directories in either direction. It is read-only by
-default and never deletes files.
+default; it writes only under `--apply` and deletes only under `--prune`.
 
 Claude plugin skills are discovered separately below each plugin version's
 `skills/` directory, including plugins that group skills into category
@@ -17,15 +17,22 @@ directories. A skill available to Claude from a plugin is reported as
 
 ## Commands
 
-Run from the repository root:
+With the wrapper on `PATH` (see Install), run from any directory:
 
 ```sh
-python3 tools/skill-sync/skill_sync.py report
-python3 tools/skill-sync/skill_sync.py report --json
-python3 tools/skill-sync/skill_sync.py sync --to codex
-python3 tools/skill-sync/skill_sync.py sync --to claude
-python3 tools/skill-sync/skill_sync.py sync --to codex --apply
-python3 tools/skill-sync/skill_sync.py sync --to codex --apply --force
+skill-sync report
+skill-sync report --json
+skill-sync sync --to codex
+skill-sync sync --to claude
+skill-sync sync --to codex --apply
+skill-sync sync --to codex --apply --force
+skill-sync sync --to codex --apply --force --prune
+```
+
+Equivalent without the wrapper:
+
+```sh
+python3 skill/skill_sync.py report
 ```
 
 `report` prints five buckets:
@@ -50,6 +57,9 @@ Plugin-provided skills are informational and are never sync candidates.
   prints its plan and makes no filesystem changes.
 - `sync --force`: include `content_differs` skills in the overwrite plan. An
   overwrite occurs only when `--force` and `--apply` are both present.
+- `sync --prune`: delete destination files inside the skills being written that
+  the source no longer has. A deletion occurs only when `--prune` and `--apply`
+  are both present; see Pruning below.
 - `--claude-dir PATH`: override Claude's user-skill directory. Default:
   `~/.claude/skills`.
 - `--codex-dir PATH`: override the Codex skill directory. Default:
@@ -64,6 +74,34 @@ or Codex skill directories produce a clean error and a nonzero exit status.
 
 Directory entries whose names begin with `_`, non-directories, and directories
 without a `SKILL.md` file are ignored.
+
+## Pruning
+
+Sync is additive by default: rename or delete a file in a skill and the old one
+survives at the destination indefinitely, because nothing ever removes it.
+`--prune` closes that gap, deliberately narrowly.
+
+It considers only the skills this run is writing, and only their contents:
+
+```text
+prune (2):
+  skill-sync/STALE.md
+  skill-sync/plans
+```
+
+A dry-run prints that list and deletes nothing, so the removals are reviewable
+before they happen. Only the topmost path of a stale subtree is listed, since
+removing a directory takes its children with it.
+
+What `--prune` will never do:
+
+- delete a skill the destination has and the source does not. Those are not in
+  the write plan, so a pruned `sync --to codex` cannot touch a Codex-only skill
+  and cannot touch a plugin-provided one.
+- delete build artefacts (`.git`, `__pycache__`, `.DS_Store`, compiled Python).
+  They are absent from the source by design, so treating them as stale would
+  make pruning quietly destructive to a symlinked git checkout.
+- delete anything without `--apply`.
 
 ## Stale-plan guard
 

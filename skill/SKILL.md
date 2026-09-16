@@ -5,18 +5,18 @@ user-invocable: true
 when_to_use: "Invoke when skills must be compared or mirrored between Claude and Codex, or when a skill appears to exist on one agent but not the other."
 category: utilities
 keywords: [skills, sync, drift, codex, claude, mirror, audit, plugin]
-argument-hint: "[report|sync] [--to claude|codex] [--apply] [--force] [--json]"
+argument-hint: "[report|sync] [--to claude|codex] [--apply] [--force] [--prune] [--json]"
 license: MIT
 metadata:
   author: loversky02
-  version: "1.1.0"
+  version: "1.2.0"
   repository: https://github.com/loversky02/skill-sync
 ---
 
 # skill-sync
 
 Compare `~/.claude/skills/` with `~/.codex/skills/` and copy what is missing or
-stale. Read-only unless `--apply` is passed. Never deletes.
+stale. Read-only unless `--apply` is passed; deletes only under `--prune`.
 
 ## Run it
 
@@ -29,6 +29,11 @@ skill-sync sync --to codex --apply  # perform the copies
 
 `--force` additionally overwrites skills whose contents differ; it only writes
 when combined with `--apply`.
+
+`--prune` deletes files inside the skills being written that the source no
+longer has. Reach for it after renaming or removing a file in a skill, since a
+plain sync leaves the old one at the destination forever. It only deletes with
+`--apply`, and a dry-run lists every path it would remove.
 
 If the `skill-sync` wrapper is not on `PATH`:
 
@@ -68,10 +73,13 @@ build noise, and are skipped when copying too.
 ## Safety
 
 - No write happens without `--apply`.
-- Nothing is ever deleted; sync adds and overwrites only.
 - Overwriting a `content_differs` skill needs `--apply --force` together.
 - `--apply` rescans both trees immediately before its first write and aborts,
   copying nothing, if the plan no longer matches what is on disk.
+- Deletion happens only under `--prune`, and only inside a skill this run is
+  writing. A skill the destination has and the source does not is never a prune
+  candidate — otherwise one pruned sync would wipe every Codex-only skill.
+  Build artefacts at the destination are left alone.
 
 ## Source
 

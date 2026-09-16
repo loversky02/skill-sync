@@ -229,6 +229,81 @@ def test_build_artefacts_do_not_create_false_drift(tmp_path: Path) -> None:
     assert report["content_differs"] == []
 
 
+def stale_layout(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """A skill whose destination copy carries files the source has dropped."""
+    claude, codex, plugins = empty_layout(tmp_path)
+    make_skill(claude, "shrunk", "new")
+    destination = make_skill(codex, "shrunk", "old")
+    (destination / "dropped.md").write_text("no longer in the source")
+    (destination / "leftovers").mkdir()
+    (destination / "leftovers" / "note.md").write_text("stale subtree")
+    return claude, codex, plugins
+
+
+def test_prune_removes_destination_only_files_inside_a_written_skill(tmp_path: Path) -> None:
+    claude, codex, plugins = stale_layout(tmp_path)
+
+    result = run_cli(
+        claude, codex, plugins, "sync", "--to", "codex", "--apply", "--force", "--prune"
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert not (codex / "shrunk" / "dropped.md").exists()
+    assert not (codex / "shrunk" / "leftovers").exists()
+    assert (codex / "shrunk" / "SKILL.md").read_text() == "new"
+
+
+def test_prune_without_apply_deletes_nothing(tmp_path: Path) -> None:
+    claude, codex, plugins = stale_layout(tmp_path)
+
+    result = run_cli(claude, codex, plugins, "sync", "--to", "codex", "--force", "--prune")
+
+    assert result.returncode == 0, result.stderr
+    assert (codex / "shrunk" / "dropped.md").exists()
+    assert (codex / "shrunk" / "leftovers" / "note.md").exists()
+    assert "mode: dry-run" in result.stdout
+    assert "prune (2):" in result.stdout
+
+
+def test_stale_destination_files_survive_without_prune(tmp_path: Path) -> None:
+    """The default stays additive: sync must not delete unless asked to."""
+    claude, codex, plugins = stale_layout(tmp_path)
+
+    result = run_cli(claude, codex, plugins, "sync", "--to", "codex", "--apply", "--force")
+
+    assert result.returncode == 0, result.stderr
+    assert (codex / "shrunk" / "dropped.md").exists()
+    assert "prune" not in result.stdout
+
+
+def test_prune_never_touches_a_skill_outside_the_write_plan(tmp_path: Path) -> None:
+    """A destination-only skill must survive a pruned sync in the other direction."""
+    claude, codex, plugins = stale_layout(tmp_path)
+    bystander = make_skill(codex, "codex-only", "untouched", extra="keep me")
+
+    result = run_cli(
+        claude, codex, plugins, "sync", "--to", "codex", "--apply", "--force", "--prune"
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (bystander / "SKILL.md").read_text() == "untouched"
+    assert (bystander / "extra.txt").read_text() == "keep me"
+
+
+def test_prune_leaves_build_artefacts_alone(tmp_path: Path) -> None:
+    claude, codex, plugins = stale_layout(tmp_path)
+    cache = codex / "shrunk" / "__pycache__"
+    cache.mkdir()
+    (cache / "helper.cpython-313.pyc").write_bytes(b"\x00compiled")
+
+    result = run_cli(
+        claude, codex, plugins, "sync", "--to", "codex", "--apply", "--force", "--prune"
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (cache / "helper.cpython-313.pyc").exists()
+
+
 def test_apply_aborts_when_the_plan_no_longer_matches_disk(tmp_path: Path) -> None:
     """A plan built before the directories changed must not be written."""
     claude, codex, plugins = empty_layout(tmp_path)
